@@ -1950,7 +1950,7 @@ sp<Layer> SurfaceFlinger::createNormalLayer(
     switch (format) {
     case PIXEL_FORMAT_TRANSPARENT:
     case PIXEL_FORMAT_TRANSLUCENT:
-        format = PIXEL_FORMAT_RGBA_8888;
+        format = PIXEL_FORMAT_BGRA_8888;
         break;
     case PIXEL_FORMAT_OPAQUE:
 #ifdef NO_RGBX_8888
@@ -1963,7 +1963,7 @@ sp<Layer> SurfaceFlinger::createNormalLayer(
 
 #ifdef NO_RGBX_8888
     if (format == PIXEL_FORMAT_RGBX_8888)
-        format = PIXEL_FORMAT_RGBA_8888;
+        format = PIXEL_FORMAT_BGRA_8888;
 #endif
 
     sp<Layer> layer = new Layer(this, client);
