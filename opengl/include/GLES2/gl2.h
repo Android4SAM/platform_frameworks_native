@@ -246,6 +246,7 @@ typedef khronos_ssize_t  GLsizeiptr;
 #define GL_ALPHA                          0x1906
 #define GL_RGB                            0x1907
 #define GL_RGBA                           0x1908
+#define GL_BGRA                           0x1910
 #define GL_LUMINANCE                      0x1909
 #define GL_LUMINANCE_ALPHA                0x190A
 
