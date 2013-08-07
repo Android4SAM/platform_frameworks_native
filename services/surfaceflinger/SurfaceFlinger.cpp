@@ -2771,6 +2771,93 @@ status_t SurfaceFlinger::captureScreenImplLocked(const sp<IBinder>& display,
     return result;
 }
 
+status_t SurfaceFlinger::captureScreenWithoutFBO(const sp<IBinder>& display,
+        sp<IMemoryHeap>* heap,
+        uint32_t* w, uint32_t* h, PixelFormat* f,
+        uint32_t sw, uint32_t sh,
+        uint32_t minLayerZ, uint32_t maxLayerZ)
+{
+      ATRACE_CALL();
+
+    status_t result = PERMISSION_DENIED;
+	
+    // get screen geometry
+    sp<const DisplayDevice> hw(getDisplayDevice(display));
+    const uint32_t hw_w = hw->getWidth();
+    const uint32_t hw_h = hw->getHeight();
+
+    // if we have secure windows on this display, never allow the screen capture
+    if (hw->getSecureLayerVisible()) {
+        ALOGW("FB is protected: PERMISSION_DENIED");
+        return PERMISSION_DENIED;
+    }
+
+    if ((sw > hw_w) || (sh > hw_h)) {
+        ALOGE("size mismatch (%d, %d) > (%d, %d)", sw, sh, hw_w, hw_h);
+        return BAD_VALUE;
+    }
+
+    sw = (!sw) ? hw_w : sw;
+    sh = (!sh) ? hw_h : sh;
+    const size_t size = sw * sh * 4;
+    const bool filtering = sw != hw_w || sh != hw_h;
+
+    ALOGE("screenshot: sw=%d, sh=%d, minZ=%d, maxZ=%d",
+            sw, sh, minLayerZ, maxLayerZ);
+
+    // make sure to clear all GL error flags
+    while ( glGetError() != GL_NO_ERROR ) ;
+
+    if (result == result) {
+
+        const Vector< sp<LayerBase> >& layers(hw->getVisibleLayersSortedByZ());
+        const size_t count = layers.size();
+        for (size_t i=0 ; i<count ; ++i) {
+            const sp<LayerBase>& layer(layers[i]);
+            const uint32_t z = layer->drawingState().z;
+            if (z >= minLayerZ && z <= maxLayerZ) {
+                if (filtering) layer->setFiltering(true);
+                layer->draw(hw);
+                if (filtering) layer->setFiltering(false);
+            }
+        }
+
+        // check for errors and return screen capture
+        if (glGetError() != GL_NO_ERROR) {
+            // error while rendering
+            result = INVALID_OPERATION;
+        } else {
+            // allocate shared memory large enough to hold the
+            // screen capture
+            sp<MemoryHeapBase> base(
+                    new MemoryHeapBase(size, 0, "screen-capture") );
+            void* const ptr = base->getBase();
+            if (ptr != MAP_FAILED) {
+                // capture the screen with glReadPixels()
+                ScopedTrace _t(ATRACE_TAG, "glReadPixels");
+                glReadPixels(0, 0, sw, sh, GL_BGRA, GL_UNSIGNED_BYTE, ptr);
+                if (glGetError() == GL_NO_ERROR) {
+                    *heap = base;
+                    *w = sw;
+                    *h = sh;
+                    *f = PIXEL_FORMAT_BGRA_8888;
+                    result = NO_ERROR;
+                }
+            } else {
+                result = NO_MEMORY;
+            }
+        }
+    } else {
+        result = BAD_VALUE;
+    }
+
+    hw->compositionComplete();
+
+    ALOGE("screenshot: result = %s", result<0 ? strerror(result) : "OK");
+
+    return result;
+}
+
 
 status_t SurfaceFlinger::captureScreen(const sp<IBinder>& display,
         sp<IMemoryHeap>* heap,
@@ -2780,9 +2867,6 @@ status_t SurfaceFlinger::captureScreen(const sp<IBinder>& display,
 {
     if (CC_UNLIKELY(display == 0))
         return BAD_VALUE;
-
-    if (!GLExtensions::getInstance().haveFramebufferObject())
-        return INVALID_OPERATION;
 
     class MessageCaptureScreen : public MessageBase {
         SurfaceFlinger* flinger;
@@ -2812,8 +2896,13 @@ status_t SurfaceFlinger::captureScreen(const sp<IBinder>& display,
         }
         virtual bool handler() {
             Mutex::Autolock _l(flinger->mStateLock);
-            result = flinger->captureScreenImplLocked(display,
-                    heap, w, h, f, sw, sh, minLayerZ, maxLayerZ);
+
+            if (!GLExtensions::getInstance().haveFramebufferObject())
+               result = flinger->captureScreenWithoutFBO(display,
+                       heap, w, h, f, sw, sh, minLayerZ, maxLayerZ);
+            else
+               result = flinger->captureScreenImplLocked(display,
+                       heap, w, h, f, sw, sh, minLayerZ, maxLayerZ);
             return true;
         }
     };
