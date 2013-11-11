@@ -15,6 +15,7 @@
  */
 
 #define LOG_TAG "SurfaceComposerClient"
+#define TARGET_HEADLESS
 
 #include <stdint.h>
 #include <sys/types.h>
@@ -52,6 +53,11 @@ ComposerService::ComposerService()
 
 void ComposerService::connectLocked() {
     const String16 name("SurfaceFlinger");
+#ifdef TARGET_HEADLESS
+    mComposerService = NULL;
+    mDeathObserver = NULL;
+	return;
+#endif
     while (getService(name, &mComposerService) != NO_ERROR) {
         usleep(250000);
     }
@@ -76,11 +82,13 @@ void ComposerService::connectLocked() {
 /*static*/ sp<ISurfaceComposer> ComposerService::getComposerService() {
     ComposerService& instance = ComposerService::getInstance();
     Mutex::Autolock _l(instance.mLock);
+#ifndef TARGET_HEADLESS
     if (instance.mComposerService == NULL) {
         ComposerService::getInstance().connectLocked();
         assert(instance.mComposerService != NULL);
         ALOGD("ComposerService reconnected");
     }
+#endif
     return instance.mComposerService;
 }
 
@@ -401,6 +409,10 @@ SurfaceComposerClient::SurfaceComposerClient()
 }
 
 void SurfaceComposerClient::onFirstRef() {
+#ifdef TARGET_HEADLESS
+    mStatus = NO_ERROR;
+    return;
+#endif
     sp<ISurfaceComposer> sm(ComposerService::getComposerService());
     if (sm != 0) {
         sp<ISurfaceComposerClient> conn = sm->createConnection();
@@ -420,14 +432,22 @@ status_t SurfaceComposerClient::initCheck() const {
 }
 
 sp<IBinder> SurfaceComposerClient::connection() const {
+#ifdef TARGET_HEADLESS
+    return 0;
+#else
     return (mClient != 0) ? mClient->asBinder() : 0;
+#endif
 }
 
 status_t SurfaceComposerClient::linkToComposerDeath(
         const sp<IBinder::DeathRecipient>& recipient,
         void* cookie, uint32_t flags) {
+#ifdef TARGET_HEADLESS
+    return NO_ERROR;
+#else
     sp<ISurfaceComposer> sm(ComposerService::getComposerService());
     return sm->asBinder()->linkToDeath(recipient, cookie, flags);
+#endif
 }
 
 void SurfaceComposerClient::dispose() {
@@ -572,7 +592,30 @@ void SurfaceComposerClient::setDisplayProjection(const sp<IBinder>& token,
 status_t SurfaceComposerClient::getDisplayInfo(
         const sp<IBinder>& display, DisplayInfo* info)
 {
+#ifdef TARGET_HEADLESS
+    info->w              = 49;
+    info->h              = 75;
+    info->orientation    = 0;
+    info->xdpi           = 165;
+    info->ydpi           = 165;
+    info->fps            = 30;
+    info->density        = 16;
+    info->pixelFormatInfo.format = HAL_PIXEL_FORMAT_YCbCr_422_SP;
+    info->pixelFormatInfo.bytesPerPixel = 1;
+    info->pixelFormatInfo.bitsPerPixel  = 16;
+    info->pixelFormatInfo.h_alpha       = 0;
+    info->pixelFormatInfo.l_alpha       = 0;
+    info->pixelFormatInfo.h_red         = 8;
+    info->pixelFormatInfo.l_red         = 0;
+    info->pixelFormatInfo.h_green       = 8;
+    info->pixelFormatInfo.l_green       = 0;
+    info->pixelFormatInfo.h_blue        = 8;
+    info->pixelFormatInfo.l_blue        = 0;
+
+    return NO_ERROR;
+#else
     return ComposerService::getComposerService()->getDisplayInfo(display, info);
+#endif
 }
 
 void SurfaceComposerClient::blankDisplay(const sp<IBinder>& token) {
@@ -590,33 +633,45 @@ ScreenshotClient::ScreenshotClient()
 }
 
 status_t ScreenshotClient::update(const sp<IBinder>& display) {
+#ifdef TARGET_HEADLESS
+    return NO_ERROR;
+#else
     sp<ISurfaceComposer> s(ComposerService::getComposerService());
     if (s == NULL) return NO_INIT;
     mHeap = 0;
     return s->captureScreen(display, &mHeap,
             &mWidth, &mHeight, &mFormat, 0, 0,
             0, -1UL);
+#endif
 }
 
 status_t ScreenshotClient::update(const sp<IBinder>& display,
         uint32_t reqWidth, uint32_t reqHeight) {
+#ifdef TARGET_HEADLESS
+    return NO_ERROR;
+#else
     sp<ISurfaceComposer> s(ComposerService::getComposerService());
     if (s == NULL) return NO_INIT;
     mHeap = 0;
     return s->captureScreen(display, &mHeap,
             &mWidth, &mHeight, &mFormat, reqWidth, reqHeight,
             0, -1UL);
+#endif
 }
 
 status_t ScreenshotClient::update(const sp<IBinder>& display,
         uint32_t reqWidth, uint32_t reqHeight,
         uint32_t minLayerZ, uint32_t maxLayerZ) {
+#ifdef TARGET_HEADLESS
+    return NO_ERROR;
+#else
     sp<ISurfaceComposer> s(ComposerService::getComposerService());
     if (s == NULL) return NO_INIT;
     mHeap = 0;
     return s->captureScreen(display, &mHeap,
             &mWidth, &mHeight, &mFormat, reqWidth, reqHeight,
             minLayerZ, maxLayerZ);
+#endif
 }
 
 void ScreenshotClient::release() {
@@ -628,11 +683,19 @@ void const* ScreenshotClient::getPixels() const {
 }
 
 uint32_t ScreenshotClient::getWidth() const {
+#ifndef TARGET_HEADLESS
     return mWidth;
+#else
+    return 49; 
+#endif
 }
 
 uint32_t ScreenshotClient::getHeight() const {
+#ifndef TARGET_HEADLESS
     return mHeight;
+#else
+    return 75;
+#endif
 }
 
 PixelFormat ScreenshotClient::getFormat() const {
@@ -640,7 +703,11 @@ PixelFormat ScreenshotClient::getFormat() const {
 }
 
 uint32_t ScreenshotClient::getStride() const {
+#ifndef TARGET_HEADLESS
     return mWidth;
+#else
+    return 49;
+#endif
 }
 
 size_t ScreenshotClient::getSize() const {
