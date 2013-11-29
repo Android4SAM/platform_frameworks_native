@@ -2780,7 +2780,7 @@ status_t SurfaceFlinger::captureScreenWithoutFBO(const sp<IBinder>& display,
       ATRACE_CALL();
 
     status_t result = PERMISSION_DENIED;
-	
+
     // get screen geometry
     sp<const DisplayDevice> hw(getDisplayDevice(display));
     const uint32_t hw_w = hw->getWidth();
@@ -2802,7 +2802,7 @@ status_t SurfaceFlinger::captureScreenWithoutFBO(const sp<IBinder>& display,
     const size_t size = sw * sh * 4;
     const bool filtering = sw != hw_w || sh != hw_h;
 
-    ALOGE("screenshot: sw=%d, sh=%d, minZ=%d, maxZ=%d",
+    ALOGD("screenshot: sw=%d, sh=%d, minZ=%d, maxZ=%d",
             sw, sh, minLayerZ, maxLayerZ);
 
     // make sure to clear all GL error flags
@@ -2853,7 +2853,7 @@ status_t SurfaceFlinger::captureScreenWithoutFBO(const sp<IBinder>& display,
 
     hw->compositionComplete();
 
-    ALOGE("screenshot: result = %s", result<0 ? strerror(result) : "OK");
+    ALOGD("screenshot: result = %s", result<0 ? strerror(result) : "OK");
 
     return result;
 }
