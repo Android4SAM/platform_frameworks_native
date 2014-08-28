@@ -2884,7 +2884,7 @@ status_t SurfaceFlinger::captureScreen(const sp<IBinder>& display,
         virtual bool handler() {
             Mutex::Autolock _l(flinger->mStateLock);
             sp<const DisplayDevice> hw(flinger->getDisplayDevice(display));
-            result = flinger->captureScreenImplLocked(hw,
+            result = flinger->captureScreenWithoutFBO(hw,
                     producer, reqWidth, reqHeight, minLayerZ, maxLayerZ);
             static_cast<GraphicProducerWrapper*>(producer->asBinder().get())->exit(result);
             return true;
@@ -2916,6 +2916,72 @@ status_t SurfaceFlinger::captureScreen(const sp<IBinder>& display,
     return res;
 }
 
+status_t SurfaceFlinger::captureScreenWithoutFBO(
+        const sp<const DisplayDevice>& hw,
+        const sp<IGraphicBufferProducer>& producer,
+        uint32_t reqWidth, uint32_t reqHeight,
+        uint32_t minLayerZ, uint32_t maxLayerZ)
+{
+    ATRACE_CALL();
+
+    // get screen geometry
+    const uint32_t hw_w = hw->getWidth();
+    const uint32_t hw_h = hw->getHeight();
+
+    if ((reqWidth > hw_w) || (reqHeight > hw_h)) {
+        ALOGE("size mismatch (%d, %d) > (%d, %d)",
+                reqWidth, reqHeight, hw_w, hw_h);
+        return BAD_VALUE;
+    }
+
+    reqWidth  = (!reqWidth)  ? hw_w : reqWidth;
+    reqHeight = (!reqHeight) ? hw_h : reqHeight;
+
+    // create a surface (because we're a producer, and we need to
+    // dequeue/queue a buffer)
+    sp<Surface> sur = new Surface(producer, false);
+    ANativeWindow* window = sur.get();
+
+    status_t result = NO_ERROR;
+    if (native_window_api_connect(window, NATIVE_WINDOW_API_EGL) == NO_ERROR) {
+        uint32_t usage = GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN |
+                        GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE;
+
+        int err = 0;
+        err = native_window_set_buffers_dimensions(window, reqWidth, reqHeight);
+        err |= native_window_set_scaling_mode(window, NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
+        err |= native_window_set_buffers_format(window, HAL_PIXEL_FORMAT_BGRA_8888);
+        err |= native_window_set_usage(window, usage);
+
+		if (err == NO_ERROR) {
+            ANativeWindowBuffer* buffer;
+            /* TODO: Once we have the sync framework everywhere this can use
+             * server-side waits on the fence that dequeueBuffer returns.
+             */
+            result = native_window_dequeue_buffer_and_wait(window,  &buffer);
+            if (result == NO_ERROR) {
+				this->renderScreenImplLocked(hw, reqWidth, reqHeight,
+                                minLayerZ, maxLayerZ, true);
+
+				sp<GraphicBuffer> graphicBuffer(new GraphicBuffer(buffer, false));
+				uint32_t* img = NULL;
+
+				err = graphicBuffer->lock(GRALLOC_USAGE_SW_WRITE_OFTEN, (void**)(&img));
+				if (err != NO_ERROR) {	
+					ALOGE("error pushing blank frames: lock failed: %s (%d)",
+						strerror(-err), -err);
+					result = BAD_VALUE;
+				}
+				getRenderEngine().readPixels(0, 0, reqWidth, reqHeight, img);
+
+            }
+			window->queueBuffer(window, buffer, -1);
+    	}
+		native_window_api_disconnect(window, NATIVE_WINDOW_API_EGL);
+    }
+
+    return result;
+}
 
 void SurfaceFlinger::renderScreenImplLocked(
         const sp<const DisplayDevice>& hw,
